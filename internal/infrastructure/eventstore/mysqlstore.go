@@ -1,27 +1,43 @@
 package eventstore
 
 import (
-	"database/sql"
 	"encoding/json"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 // MySQLEventStore implements Store backed by a MySQL table named `events`.
 type MySQLEventStore struct {
-	db *sql.DB
+	db *gorm.DB
 }
 
 // NewMySQL creates a new MySQLEventStore.
-func NewMySQL(db *sql.DB) *MySQLEventStore {
+func NewMySQL(db *gorm.DB) *MySQLEventStore {
 	return &MySQLEventStore{db: db}
 }
 
 // Append stores the event type and JSON payload in the events table.
+type EventRecord struct {
+	ID        int `gorm:"primaryKey"`
+	Type      string
+	Payload   string
+	CreatedAt time.Time
+}
+
+func (EventRecord) TableName() string {
+	return "events"
+}
+
 func (s *MySQLEventStore) Append(eventType string, payload interface{}) error {
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec("INSERT INTO events (type, payload, created_at) VALUES (?, ?, ?)", eventType, string(data), time.Now())
-	return err
+	record := EventRecord{
+		Type:      eventType,
+		Payload:   string(data),
+		CreatedAt: time.Now(),
+	}
+	return s.db.Create(&record).Error
 }
