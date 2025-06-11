@@ -1,0 +1,13 @@
+{
+  "name": "CardGameDB Dev Container",
+  "dockerComposeFile": "../docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "/workspace/CardGameDB",
+  "settings": {
+    "go.gopath": "/go",
+    "go.useLanguageServer": true,
+    "editor.formatOnSave": true
+  },
+  "extensions": ["golang.Go"],
+  "postCreateCommand": "go mod download"
+}
