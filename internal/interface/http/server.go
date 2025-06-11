@@ -4,12 +4,12 @@ import (
 	stdhttp "net/http"
 	"strconv"
 
+	"CardGameDB/internal/application"
 	"CardGameDB/internal/domain/card"
-	"CardGameDB/internal/infrastructure/eventbus"
+	"CardGameDB/internal/infrastructure/commandbus"
 )
 
 const (
-	searchEvent = "card.search"
 	createEvent = "card.create"
 	updateEvent = "card.update"
 )
@@ -17,12 +17,14 @@ const (
 // Server struct
 
 type Server struct {
-	bus *eventbus.EventBus
+	bus      *commandbus.CommandBus
+	searchUC *application.SearchUseCase
 }
 
 // NewServer creates server
-func NewServer(bus *eventbus.EventBus) *Server {
-	return &Server{bus: bus}
+func NewServer(bus *commandbus.CommandBus, searchUC *application.SearchUseCase) *Server {
+	return &Server{bus: bus, searchUC: searchUC}
+
 }
 
 // Start HTTP server on addr
@@ -61,18 +63,16 @@ func (s *Server) handleSearch(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		filter.SubCategory = &v
 	}
 
-	reply := make(chan card.SearchResult)
-	s.bus.Publish(searchEvent, card.SearchRequested{Filter: filter, Reply: reply})
-	res := <-reply
-	if res.Err != nil {
-		stdhttp.Error(w, res.Err.Error(), stdhttp.StatusInternalServerError)
+	cards, err := s.searchUC.Query(filter)
+	if err != nil {
+		stdhttp.Error(w, err.Error(), stdhttp.StatusInternalServerError)
 		return
 	}
 
 	// simple JSON response
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte("["))
-	for i, c := range res.Cards {
+	for i, c := range cards {
 		if i > 0 {
 			w.Write([]byte(","))
 		}

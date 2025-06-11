@@ -1,15 +1,17 @@
 package main
 
 import (
-	"database/sql"
 	"log"
 	"os"
+	"strings"
 
 	_ "github.com/go-sql-driver/mysql"
+	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
 
 	"CardGameDB/internal/application"
 	"CardGameDB/internal/domain/card"
-	"CardGameDB/internal/infrastructure/eventbus"
+	"CardGameDB/internal/infrastructure/commandbus"
 	"CardGameDB/internal/infrastructure/eventstore"
 	mysqlRepo "CardGameDB/internal/infrastructure/repository/mysql"
 	httpInterface "CardGameDB/internal/interface/http"
@@ -18,25 +20,28 @@ import (
 func main() {
 	dsn := os.Getenv("DB_DSN")
 	if dsn == "" {
-		dsn = "user:password@tcp(localhost:3306)/carddb"
+		dsn = "user:password@tcp(localhost:3306)/carddb?parseTime=true"
 	}
-	db, err := sql.Open("mysql", dsn)
+	gdb, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer db.Close()
 
-	repo := mysqlRepo.New(db)
+	repo := mysqlRepo.New(gdb)
 
-	store := eventstore.NewMySQL(db)
-	bus := eventbus.New(store)
+	store := eventstore.NewMySQL(gdb)
+
+	brokersEnv := os.Getenv("KAFKA_BROKERS")
+	if brokersEnv == "" {
+		brokersEnv = "localhost:9092"
+	}
+	brokers := strings.Split(brokersEnv, ",")
+	bus, err := commandbus.NewKafka(store, brokers)
+	if err != nil {
+		log.Fatal(err)
+	}
 	searchUC := application.NewSearchUseCase(repo)
 	manageUC := application.NewManageUseCase(repo)
-	bus.Subscribe("card.search", func(e interface{}) {
-		if evt, ok := e.(card.SearchRequested); ok {
-			searchUC.Handle(evt)
-		}
-	})
 	bus.Subscribe("card.create", func(e interface{}) {
 		if evt, ok := e.(card.CreateRequested); ok {
 			manageUC.HandleCreate(evt)
@@ -48,7 +53,7 @@ func main() {
 		}
 	})
 
-	server := httpInterface.NewServer(bus)
+	server := httpInterface.NewServer(bus, searchUC)
 	log.Println("Listening on :8080")
 	if err := server.Start(":8080"); err != nil {
 		log.Fatal(err)
